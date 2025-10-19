@@ -14,7 +14,6 @@ import PIL
 import PIL.Image
 import torch
 from torch.utils.data import Dataset
-import webdataset as wds
 import spacy
 import numpy as np
 import sng_parser
@@ -39,29 +38,25 @@ class CaptionDataset_RTD(Dataset):
         # reference caption
         reference_caption = self.reference_captions[idx]
         reference_caption = clean_caption(reference_caption, self.tokenizer)
-        reference_caption_dict = self.tokenizer(text=reference_caption, return_tensors='pt', padding='max_length', truncation=True)
+        reference_caption_dict = self.tokenizer(text=reference_caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
         reference_tokens, _ = reference_caption_dict['input_ids'][0], reference_caption_dict['attention_mask'][0]
         
         # target caption
         target_caption = self.target_captions[idx]
         target_caption = clean_caption(target_caption, self.tokenizer)
-        target_caption_dict = self.tokenizer(text=target_caption, return_tensors='pt', padding='max_length', truncation=True)
+        target_caption_dict = self.tokenizer(text=target_caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
         target_tokens, _ = target_caption_dict['input_ids'][0], target_caption_dict['attention_mask'][0]
         
         # concatenated caption
         concat_caption = 'a photo of [$] that ' +  self.conditioning_captions[idx]        
-        concat_token_dict = self.tokenizer(text=concat_caption, return_tensors='pt', padding='max_length', truncation=True)
+        concat_token_dict = self.tokenizer(text=concat_caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
         concat_tokens, _ = concat_token_dict['input_ids'][0], concat_token_dict['attention_mask'][0]
-        concat_tokens = torch.where(concat_tokens == 49408,
-                                      torch.ones_like(concat_tokens) * 259,
-                                      concat_tokens)
+        concat_tokens = torch.where(concat_tokens == 49408, torch.ones_like(concat_tokens) * 259, concat_tokens)
         # special caption 
         special_caption = 'a photo of [$]'        
-        special_token_dict = self.tokenizer(text=special_caption, return_tensors='pt', padding='max_length', truncation=True)
+        special_token_dict = self.tokenizer(text=special_caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
         special_tokens, _ = special_token_dict['input_ids'][0], special_token_dict['attention_mask'][0]
-        special_tokens = torch.where(special_tokens == 49408,
-                                      torch.ones_like(special_tokens) * 259,
-                                      special_tokens)
+        special_tokens = torch.where(special_tokens == 49408, torch.ones_like(special_tokens) * 259, special_tokens)
         
         return concat_tokens, target_tokens, reference_tokens, special_tokens 
 
@@ -72,17 +67,13 @@ def build_loader_RTD(args, tokenizer, accelerator):
     target_captions = db_relative['train']['target_caption']
     conditioning_captions = db_relative['train']['conditioning_caption']
 
+    # in dataset: concat tokens, target_tokens, reference_tokens, special_tokens
     dataset = CaptionDataset_RTD(reference_captions,target_captions,conditioning_captions, tokenizer, spacy.load('en_core_web_sm'))
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers, drop_last=True, shuffle=True)
 
     return data_loader
 
 ####
-
-
-
-
-
 def extract_keywords(spacy_nlp, caption):
     candidates = []
     nlp_caption = caption
@@ -185,10 +176,10 @@ def preprocess_precomputed_base(sample, spacy_nlp, keywords_list, tokenizer):
                 indicator = 0
             break
 
-    token_dict = tokenizer(text=caption, return_tensors='pt', padding='max_length', truncation=True)
+    token_dict = tokenizer(text=caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
     tokens, attention_mask = token_dict['input_ids'][0], token_dict['attention_mask'][0]
 
-    replaced_token_dict = tokenizer(text=replaced_caption, return_tensors='pt', padding='max_length', truncation=True)
+    replaced_token_dict = tokenizer(text=replaced_caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
     replaced_tokens, replaced_attention_mask = replaced_token_dict['input_ids'][0], replaced_token_dict['attention_mask'][0]
 
     replaced_tokens = torch.where(replaced_tokens == 49408,
@@ -197,7 +188,7 @@ def preprocess_precomputed_base(sample, spacy_nlp, keywords_list, tokenizer):
 
     if 259 not in replaced_tokens:
         replaced_caption = 'a photo of [$]'
-        replaced_token_dict = tokenizer(text=replaced_caption, return_tensors='pt', padding='max_length', truncation=True)
+        replaced_token_dict = tokenizer(text=replaced_caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
         replaced_tokens, replaced_attention_mask = replaced_token_dict['input_ids'][0], replaced_token_dict['attention_mask'][0]
 
         replaced_tokens = torch.where(replaced_tokens == 49408,
@@ -252,10 +243,10 @@ class CaptionDataset(Dataset):
                     indicator = 0
                 break
 
-        token_dict = self.tokenizer(text=caption, return_tensors='pt', padding='max_length', truncation=True)
+        token_dict = self.tokenizer(text=caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
         tokens, attention_mask = token_dict['input_ids'][0], token_dict['attention_mask'][0]
 
-        replaced_token_dict = self.tokenizer(text=replaced_caption, return_tensors='pt', padding='max_length', truncation=True)
+        replaced_token_dict = self.tokenizer(text=replaced_caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
         replaced_tokens, replaced_attention_mask = replaced_token_dict['input_ids'][0], replaced_token_dict['attention_mask'][0]
 
         replaced_tokens = torch.where(replaced_tokens == 49408,
@@ -264,7 +255,7 @@ class CaptionDataset(Dataset):
 
         if 259 not in replaced_tokens:
             replaced_caption = 'a photo of [$]'
-            replaced_token_dict = self.tokenizer(text=replaced_caption, return_tensors='pt', padding='max_length', truncation=True)
+            replaced_token_dict = self.tokenizer(text=replaced_caption, return_tensors='pt', padding='max_length', truncation=True, max_length=77)
             replaced_tokens, replaced_attention_mask = replaced_token_dict['input_ids'][0], replaced_token_dict['attention_mask'][0]
 
             replaced_tokens = torch.where(replaced_tokens == 49408,
@@ -349,7 +340,7 @@ class FashionIQDataset(Dataset):
             with open(dataset_path / 'captions' / f'cap.{dress_type}.{split}.json') as f:
                 self.triplets.extend(json.load(f))
 
-        # Remove duplicats from
+        # Remove duplicates from
         if self.no_duplicates:
             seen = set()
             new_triplets = []
@@ -421,274 +412,3 @@ class FashionIQDataset(Dataset):
         else:
             raise ValueError("mode should be in ['relative', 'classic']")
 
-
-class CIRRDataset(Dataset):
-    """
-   Copy-paste from https://github.com/miccunifi/SEARLE/blob/main/src/datasets.py
-   CIRR dataset class for PyTorch dataloader.
-   The dataset can be used in 'relative' or 'classic' mode:
-        - In 'classic' mode the dataset yield a dict with keys ['image', 'image_name']
-        - In 'relative' mode the dataset yield dict with keys:
-            - ['reference_image', 'reference_name', 'target_image', 'target_name', 'relative_caption', 'group_members']
-             when split in ['train', 'val']
-            - ['reference_image', 'reference_name' 'relative_caption', 'group_members', 'pair_id'] when split == test
-    """
-
-    def __init__(self, dataset_path: Union[Path, str], split: Literal['train', 'val', 'test'],
-                 mode: Literal['relative', 'classic'], preprocess: callable, no_duplicates: Optional[bool] = False):
-        """
-        :param dataset_path: path to the CIRR dataset
-        :param split: dataset split, should be in ['train', 'val', 'test']
-        :param mode: dataset mode, should be in ['relative', 'classic']:
-                - In 'classic' mode the dataset yield a dict with keys ['image', 'image_name']
-                - In 'relative' mode the dataset yield dict with keys:
-                    - ['reference_image', 'reference_name', 'target_image', 'target_name', 'relative_caption',
-                    'group_members'] when split in ['train', 'val']
-                    - ['reference_image', 'reference_name' 'relative_caption', 'group_members', 'pair_id'] when split == test
-        :param preprocess: function which preprocesses the image
-        :param no_duplicates: if True, the dataset will not yield duplicate images in relative mode, does not affect classic mode
-        """
-        dataset_path = Path(dataset_path)
-        self.dataset_path = dataset_path
-        self.preprocess = preprocess
-        self.mode = mode
-        self.split = split
-        self.no_duplicates = no_duplicates
-
-        if split == "test":
-            split = "test1"
-            self.split = "test1"
-
-        # Validate inputs
-        if split not in ['test1', 'train', 'val']:
-            raise ValueError("split should be in ['test1', 'train', 'val']")
-        if mode not in ['relative', 'classic']:
-            raise ValueError("mode should be in ['relative', 'classic']")
-
-        # get triplets made by (reference_image, target_image, relative caption)
-        with open(dataset_path / 'cirr' / 'captions' / f'cap.rc2.{split}.json') as f:
-            self.triplets = json.load(f)
-
-        # Remove duplicates from triplets
-        if self.no_duplicates:
-            seen = set()
-            new_triplets = []
-            for triplet in self.triplets:
-                if triplet['reference'] not in seen:
-                    seen.add(triplet['reference'])
-                    new_triplets.append(triplet)
-            self.triplets = new_triplets
-
-        # get a mapping from image name to relative path
-        with open(dataset_path / 'cirr' / 'image_splits' / f'split.rc2.{split}.json') as f:
-            self.name_to_relpath = json.load(f)
-
-        print(f"CIRR {split} dataset in {mode} mode initialized")
-
-    def __getitem__(self, index) -> dict:
-        try:
-            if self.mode == 'relative':
-                group_members = self.triplets[index]['img_set']['members']
-                reference_name = self.triplets[index]['reference']
-                relative_caption = self.triplets[index]['caption']
-
-                if self.split in ['train', 'val']:
-                    reference_image_path = self.dataset_path / self.name_to_relpath[reference_name]
-                    reference_image = self.preprocess(PIL.Image.open(reference_image_path), return_tensors='pt')['pixel_values'][0]
-                    target_hard_name = self.triplets[index]['target_hard']
-                    target_image_path = self.dataset_path / self.name_to_relpath[target_hard_name]
-                    target_image = self.preprocess(PIL.Image.open(target_image_path), return_tensors='pt')['pixel_values'][0]
-
-                    return {
-                        'reference_image': reference_image,
-                        'reference_name': reference_name,
-                        'target_image': target_image,
-                        'target_name': target_hard_name,
-                        'relative_caption': relative_caption,
-                        'group_members': group_members
-                    }
-
-                elif self.split == 'test1':
-                    pair_id = self.triplets[index]['pairid']
-                    reference_image_path = self.dataset_path / self.name_to_relpath[reference_name]
-                    reference_image = self.preprocess(PIL.Image.open(reference_image_path), return_tensors='pt')['pixel_values'][0]
-                    return {
-                        'reference_image': reference_image,
-                        'reference_name': reference_name,
-                        'relative_caption': relative_caption,
-                        'group_members': group_members,
-                        'pair_id': pair_id
-                    }
-
-            elif self.mode == 'classic':
-                image_name = list(self.name_to_relpath.keys())[index]
-                image_path = self.dataset_path / self.name_to_relpath[image_name]
-                im = PIL.Image.open(image_path)
-                image = self.preprocess(im, return_tensors='pt')['pixel_values'][0]
-
-                return {
-                    'image': image,
-                    'image_name': image_name
-                }
-
-            else:
-                raise ValueError("mode should be in ['relative', 'classic']")
-
-        except Exception as e:
-            print(f"Exception: {e}")
-
-    def __len__(self):
-        if self.mode == 'relative':
-            return len(self.triplets)
-        elif self.mode == 'classic':
-            return len(self.name_to_relpath)
-        else:
-            raise ValueError("mode should be in ['relative', 'classic']")
-
-
-class CIRCODataset(Dataset):
-    """
-    Copy-paste from https://github.com/miccunifi/SEARLE/blob/main/src/datasets.py
-    CIRCO dataset class for PyTorch.
-    The dataset can be used in 'relative' or 'classic' mode:
-        - In 'classic' mode the dataset yield a dict with keys ['image', 'image_name']
-        - In 'relative' mode the dataset yield dict with keys:
-            - ['reference_image', 'reference_name', 'target_image', 'target_name', 'relative_captions', 'shared_concept',
-             'gt_img_ids', 'query_id'] when split == 'val'
-            - ['reference_image', 'reference_name', 'relative_captions', 'shared_concept', 'query_id'] when split == test
-    """
-
-    def __init__(self, dataset_path: Union[str, Path], split: Literal['val', 'test'],
-                 mode: Literal['relative', 'classic'], preprocess: callable):
-        """
-        Args:
-            dataset_path (Union[str, Path]): path to CIRCO dataset
-            split (str): dataset split, should be in ['test', 'val']
-            mode (str): dataset mode, should be in ['relative', 'classic']
-            preprocess (callable): function which preprocesses the image
-        """
-
-        # Set dataset paths and configurations
-        dataset_path = Path(dataset_path)
-        self.mode = mode
-        self.split = split
-        self.preprocess = preprocess
-        self.data_path = dataset_path
-
-        # Ensure input arguments are valid
-        if mode not in ['relative', 'classic']:
-            raise ValueError("mode should be in ['relative', 'classic']")
-        if split not in ['test', 'val']:
-            raise ValueError("split should be in ['test', 'val']")
-
-        # Load COCO images information
-        with open(dataset_path / 'COCO2017_unlabeled' / "annotations" / "image_info_unlabeled2017.json", "r") as f:
-            imgs_info = json.load(f)
-
-        self.img_paths = [dataset_path / 'COCO2017_unlabeled' / "unlabeled2017" / img_info["file_name"] for img_info in
-                          imgs_info["images"]]
-        self.img_ids = [img_info["id"] for img_info in imgs_info["images"]]
-        self.img_ids_indexes_map = {str(img_id): i for i, img_id in enumerate(self.img_ids)}
-
-        # get CIRCO annotations
-        with open(dataset_path / 'annotations' / f'{split}.json', "r") as f:
-            self.annotations: List[dict] = json.load(f)
-
-        # Get maximum number of ground truth images (for padding when loading the images)
-        self.max_num_gts = 23  # Maximum number of ground truth images
-
-        print(f"CIRCODataset {split} dataset in {mode} mode initialized")
-
-    def get_target_img_ids(self, index) -> Dict[str, int]:
-        """
-        Returns the id of the target image and ground truth images for a given query
-
-        Args:
-            index (int): id of the query
-
-        Returns:
-             Dict[str, int]: dictionary containing target image id and a list of ground truth image ids
-        """
-
-        return {
-            'target_img_id': self.annotations[index]['target_img_id'],
-            'gt_img_ids': self.annotations[index]['gt_img_ids']
-        }
-
-    def __getitem__(self, index) -> dict:
-        """
-        Returns a specific item from the dataset based on the index.
-
-        In 'classic' mode, the dataset yields a dictionary with the following keys: [img, img_id]
-        In 'relative' mode, the dataset yields dictionaries with the following keys:
-            - [reference_img, reference_img_id, target_img, target_img_id, relative_caption, shared_concept, gt_img_ids,
-            query_id]
-            if split == val
-            - [reference_img, reference_img_id, relative_caption, shared_concept, query_id]  if split == test
-        """
-
-        if self.mode == 'relative':
-            # Get the query id
-            query_id = str(self.annotations[index]['id'])
-
-            # Get relative caption and shared concept
-            relative_caption = self.annotations[index]['relative_caption']
-            shared_concept = self.annotations[index]['shared_concept']
-
-            # Get the reference image
-            reference_img_id = str(self.annotations[index]['reference_img_id'])
-            reference_img_path = self.img_paths[self.img_ids_indexes_map[reference_img_id]]
-            reference_img = self.preprocess(PIL.Image.open(reference_img_path), return_tensors='pt')['pixel_values'][0]
-
-            if self.split == 'val':
-                # Get the target image and ground truth images
-                target_img_id = str(self.annotations[index]['target_img_id'])
-                gt_img_ids = [str(x) for x in self.annotations[index]['gt_img_ids']]
-                target_img_path = self.img_paths[self.img_ids_indexes_map[target_img_id]]
-                target_img = self.preprocess(PIL.Image.open(target_img_path), return_tensors='pt')['pixel_values'][0]
-
-                # Pad ground truth image IDs with zeros for collate_fn
-                gt_img_ids += [''] * (self.max_num_gts - len(gt_img_ids))
-
-                return {
-                    'reference_image': reference_img,
-                    'reference_name': reference_img_id,
-                    'target_image': target_img,
-                    'target_name': target_img_id,
-                    'relative_caption': relative_caption,
-                    'shared_concept': shared_concept,
-                    'gt_img_ids': gt_img_ids,
-                    'query_id': query_id,
-                }
-
-            elif self.split == 'test':
-                return {
-                    'reference_image': reference_img,
-                    'reference_name': reference_img_id,
-                    'relative_caption': relative_caption,
-                    'shared_concept': shared_concept,
-                    'query_id': query_id,
-                }
-
-        elif self.mode == 'classic':
-            # Get image ID and image path
-            img_id = str(self.img_ids[index])
-            img_path = self.img_paths[index]
-
-            # Preprocess image and return
-            img = self.preprocess(PIL.Image.open(img_path), return_tensors='pt')['pixel_values'][0]
-            return {
-                'image': img,
-                'image_name': img_id
-            }
-
-    def __len__(self):
-        """
-        Returns the length of the dataset.
-        """
-        if self.mode == 'relative':
-            return len(self.annotations)
-        elif self.mode == 'classic':
-            return len(self.img_ids)
-        else:
-            raise ValueError("mode should be in ['relative', 'classic']")

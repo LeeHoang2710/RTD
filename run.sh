@@ -15,6 +15,10 @@ python3 -m torch.distributed.run --nproc_per_node 4 --nnodes 1 --node_rank 0 \
 --mixed_precision "fp16" \
 
 
+python train_text_encoder.py --batch_size 64 --output_dir output --cirr_dataset_path fashionIQ_dataset --clip_model_name large --validation_steps 10 --checkpointing_steps 10 --seed 12345 --lr_scheduler constant_with_warmup --lr_warmup_steps 0 --max_train_steps 200 --phi_checkpoint "lincir_large.pt" --caption_dir "LLM_triplets.json" --learning_rate 1e-5 --mixed_precision "fp16"
+
+
+
 python3 validate.py \
 --eval-type phi \
 --dataset cirr \

@@ -2,7 +2,7 @@ from typing import Optional, Tuple, List
 
 import torch
 import torch.nn.functional as F
-from clip.model import CLIP
+from clip.clip import tokenize
 from transformers import CLIPVisionModelWithProjection, CLIPTextModelWithProjection
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -90,8 +90,8 @@ def extract_text_features(
             texts = batch.get("reference_text")
         if names is None:
             names = batch.get("reference_name")
-
-        texts = clip.tokenize(texts, context_length=77).to(clip_model.device)
+        
+        texts = tokenize(texts, context_length=77).to(clip_model.device)
         with torch.no_grad():
             batch_features = clip_model(input_ids=texts).text_embeds
             index_features.append(batch_features.cpu())
@@ -143,6 +143,8 @@ def extract_image_features_BLIP(dataset: Dataset, blip_model, batch_size: Option
 
 def contrastive_loss(v1: torch.Tensor, v2: torch.Tensor, temperature: float) -> torch.Tensor:
     # Based on https://github.com/NVlabs/PALAVRA/blob/main/utils/nv.py
+
+    # InfoNCE loss
     v1 = F.normalize(v1, dim=1)
     v2 = F.normalize(v2, dim=1)
 
@@ -224,6 +226,7 @@ def extract_pseudo_tokens_with_phi_BLIP(blip_model, phi: Phi, dataset: Dataset, 
 
     predicted_tokens = torch.vstack(predicted_tokens)
     return predicted_tokens, names_list
+
 @torch.no_grad()
 def extract_image_features_with_names(clip_model: CLIPVisionModelWithProjection, dataset: Dataset) -> Tuple[torch.Tensor, List[str]]:
     """
@@ -252,25 +255,6 @@ def extract_image_features_with_names(clip_model: CLIPVisionModelWithProjection,
 
     predicted_tokens = torch.vstack(predicted_tokens)
     return predicted_tokens, names_list
-
-class CustomTensorDataset(Dataset):
-    """
-    Custom Tensor Dataset which yields image_features and image_names
-    """
-
-
-
-    def __init__(self, images: torch.Tensor, names: torch.Tensor):
-        self.images = images
-        self.names = names
-
-    def __getitem__(self, index) -> dict:
-        return {'image': self.images[index],
-                'image_name': self.names[index]
-                }
-
-    def __len__(self):
-        return len(self.images)
 
 
 def get_templates():

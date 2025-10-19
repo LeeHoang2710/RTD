@@ -18,11 +18,11 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from loader import CIRRDataset, build_loader_RTD 
+from loader import FashionIQDataset, build_loader_RTD 
 from encode_with_pseudo_tokens import encode_with_pseudo_tokens_HF
 from models import Phi, build_text_encoders_RTD
 from utils import extract_image_features, extract_pseudo_tokens_with_phi, contrastive_loss
-from validate import cirr_compute_val_metrics
+from validate import fiq_compute_val_metrics
 
 import sys
 import transformers
@@ -75,8 +75,7 @@ def parse_args():
     parser.add_argument("--phi_checkpoint", default=None, type=str, help="path for loading pre-trained phi checkpoint")
     parser.add_argument("--noise_scale", default=0.5, type=float, help="Scale of noise distribution")
     parser.add_argument("--tau", default=0.07, type=float, help="temperature")
-    parser.add_argument("--caption_dir", default="/path/to/your_dataset/LLM_triplets.json", type=str,
-                        help="The caption directory")
+    parser.add_argument("--caption_dir", default="/path/to/your_dataset/LLM_triplets.json", type=str, help="The caption directory")
     ####
     
     args = parser.parse_args()
@@ -100,7 +99,8 @@ def save_text_encoder(name: str, cur_epoch: int, model_to_save, training_path: P
     }, os.path.join(models_path, f'{name}.pt'))
 
 def train_text_encoder(args):
-    # We are going to use the pre-extracted clip image features. so we do not need image_encoder anymore.
+    # We are going to use the pre-extracted (frozen) clip image features. so we do not need image_encoder anymore.
+
     ### init accelerator here
     logging_dir = os.path.join(args.output_dir, args.logging_dir)
     accelerator = Accelerator(
@@ -138,12 +138,13 @@ def train_text_encoder(args):
                     hidden_dim=text_encoder.config.projection_dim * 4,
                     output_dim=text_encoder.config.hidden_size, dropout=args.phi_dropout)
 
-    
+    # Load pretrained lincir_large model
     if args.phi_checkpoint:
         phi.load_state_dict(
                 torch.load(args.phi_checkpoint, map_location=accelerator.device)[
                 phi.__class__.__name__])
         
+    # Resume training text encoder
     if args.resume:
         text_encoder_train.load_state_dict(
                 torch.load(args.resume, map_location=accelerator.device)[
@@ -156,11 +157,12 @@ def train_text_encoder(args):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    
+    # load models to device
     image_encoder.to(accelerator.device, dtype=weight_dtype)
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     phi.to(accelerator.device, dtype=weight_dtype)
     
+    # frozen image encoder and text encoder and phi model
     image_encoder.requires_grad_(False)
     text_encoder.requires_grad_(False)
     phi.requires_grad_(False)
@@ -169,16 +171,20 @@ def train_text_encoder(args):
 
     ### Define the train datasets
     print('pytorch loader')
+    # train dataset is from LLM_triplets.json and from Compodiff 
     train_dataset = build_loader_RTD(args, tokenizer, accelerator)
 
     ## evaluator
     if accelerator.is_main_process:
-        ## Define CIRR validation set
-        cirr_relative_val_dataset = CIRRDataset(args.cirr_dataset_path, 'val', 'relative', clip_preprocess)
-        cirr_classic_val_dataset = CIRRDataset(args.cirr_dataset_path, 'val', 'classic', clip_preprocess)
+        ## Define FashionIQ validation set
+        # cirr_relative_val_dataset = CIRRDataset(args.cirr_dataset_path, 'val', 'relative', clip_preprocess)
+        # cirr_classic_val_dataset = CIRRDataset(args.cirr_dataset_path, 'val', 'classic', clip_preprocess)
+        fiq_classic_val_dataset = FashionIQDataset(args.cirr_dataset_path, 'val', ['dress'], 'classic', clip_preprocess)
+        fiq_relative_val_dataset = FashionIQDataset(args.cirr_dataset_path, 'val', ['dress'], 'relative', clip_preprocess)
 
-        # Extract the features for the CIRR validation set
-        cirr_val_index_features, cirr_val_index_names = extract_image_features(cirr_classic_val_dataset, image_encoder)
+        # Extract the features for the FashionIQ validation set
+        # cirr_val_index_features, cirr_val_index_names = extract_image_features(cirr_classic_val_dataset, image_encoder)
+        index_features, index_names = extract_image_features(fiq_classic_val_dataset, image_encoder)
 
     # Define the optimizer, the loss and the grad scaler
     if args.use_8bit_adam:
@@ -200,12 +206,10 @@ def train_text_encoder(args):
             args.lr_scheduler,
             optimizer=optimizer,
             num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps * accelerator.num_processes,
-            num_training_steps=args.max_train_steps * args.gradient_accumulation_steps * accelerator.num_processes,
-    )
+            num_training_steps=args.max_train_steps * args.gradient_accumulation_steps * accelerator.num_processes,)
 
     text_encoder_train, optimizer, lr_scheduler, train_dataset = accelerator.prepare(
-            text_encoder_train, optimizer, lr_scheduler, train_dataset
-    )
+            text_encoder_train, optimizer, lr_scheduler, train_dataset)
 
     if accelerator.is_main_process:
         accelerator.init_trackers("zeroshot-cir", config=vars(args))
@@ -225,20 +229,20 @@ def train_text_encoder(args):
     global_step = 0
     best_recall = -1
 
-    progress_bar = tqdm(range(global_step, args.max_train_steps), disable=not accelerator.is_local_main_process)
+    progress_bar = tqdm(range(global_step, args.max_train_steps), disable=not accelerator.is_local_main_process, desc="Training Phases")
     progress_bar.set_description("Steps")
 
     while True:
         for idx, (concat_tokens, target_tokens, reference_tokens, special_tokens) in enumerate(train_dataset):
-            #### T_{r+c}
+            #### T_{r+c}: a photo of [$] that conditioning caption
             concat_tokens = concat_tokens.to(accelerator.device)
-            #### T_t
+            #### T_t: target caption
             target_tokens = target_tokens.to(accelerator.device)
-            #### T_r:  special_tokens: a photo of [$],  reference_tokens: a photo of [T_r]
+            #### T_r: reference caption, Special caption: a photo of [$]
             special_tokens = special_tokens.to(accelerator.device)
             reference_tokens = reference_tokens.to(accelerator.device)
-            
-            #### Use refined batch sampling
+
+            #### Use refined batch sampling: T_{r+c} (a photo of [$] that [T_c]) and T_r (a photo of [$])
             concat_tokens = torch.cat((concat_tokens, special_tokens), dim=0).to(accelerator.device)
             target_tokens = torch.cat((target_tokens, reference_tokens), dim=0).to(accelerator.device)
             
@@ -253,13 +257,14 @@ def train_text_encoder(args):
             #### add noise and use phi for refined concatenatenation scheme.
             input_features = reference_text_embeddings.clone()
             input_features += args.noise_scale * torch.rand(input_features.shape[0], device=input_features.device).unsqueeze(-1) * torch.randn(input_features.shape, device=input_features.device)
-            estimated_token_embeddings = phi(input_features)
+            estimated_token_embeddings = phi(input_features) # this is [$] in T_{r+c}
             
-            #### Consider refined batch sampling: T_{r+c} (a photo of [$] that [T_c]) and T_r (a photo of [$])
+            # extend estimated_token_embeddings to match batch size with concat_tokens
             estimated_token_embeddings = torch.cat((estimated_token_embeddings, estimated_token_embeddings), dim=0).to(accelerator.device)
             
-            #### extract pseudo tokens [$]
-            concat_text_embeddings, _ = encode_with_pseudo_tokens_HF(text_encoder_train.module, concat_tokens, estimated_token_embeddings, return_last_states=True)
+            # encode the concat tokens T_{r+c} (has [$]) with trainable text encoder
+            concat_text_embeddings, _ = encode_with_pseudo_tokens_HF(text_encoder_train, concat_tokens, estimated_token_embeddings, return_last_states=True)
+            # encode target tokens T_t with frozen text encoder
             target_text_embeddings = target_text_embeddings.to(concat_text_embeddings.dtype)
             
             loss = contrastive_loss(target_text_embeddings,concat_text_embeddings,args.tau)
@@ -290,23 +295,19 @@ def train_text_encoder(args):
                     if accelerator.is_main_process:
                         logger.info(f"evaluate model... step: {global_step}")
 
-                        # Extract the pseudo tokens for the CIRR validation set using Phi
-                        cirr_val_pseudo_tokens, cirr_val_ref_names_list = extract_pseudo_tokens_with_phi(image_encoder, phi,
-                                                                                                         cirr_relative_val_dataset, args)
-                        cirr_val_pseudo_tokens = cirr_val_pseudo_tokens.to(accelerator.device)
+                        # Extract the pseudo tokens for the FashionIQ validation set using Phi
+                        pseudo_tokens, ref_names_list = extract_pseudo_tokens_with_phi(image_encoder, phi, fiq_relative_val_dataset, args)
+                        pseudo_tokens = pseudo_tokens.to(accelerator.device)
 
-                        # Compute the CIRR validation metrics
-                        cirr_results_dict = cirr_compute_val_metrics(cirr_relative_val_dataset, accelerator.unwrap_model(text_encoder_train).eval(),
-                                                                     cirr_val_index_features, cirr_val_index_names,
-                                                                     cirr_val_ref_names_list, cirr_val_pseudo_tokens)
-                        check_list = ['cirr_recall_at1', 'cirr_recall_at5', 'cirr_recall_at10', 'cirr_recall_at50' ] 
+                        # Compute the FashionIQ validation metrics
+                        fiq_results_dict = fiq_compute_val_metrics(fiq_relative_val_dataset, accelerator.unwrap_model(text_encoder_train).eval(), index_features, index_names, ref_names_list, pseudo_tokens)
+                        check_list = ['fiq_recall_at10', 'fiq_recall_at50' ] 
 
                         for check_key in check_list:
-                            accelerator.log({f"validate/{check_key}": cirr_results_dict[check_key]}, step=global_step)
-                        print(json.dumps(cirr_results_dict, indent=4))
-                        
-                        check_list = ['cirr_recall_at1', 'cirr_recall_at5', 'cirr_recall_at10', 'cirr_recall_at50', "cirr_group_recall_at1", "cirr_group_recall_at2", "cirr_group_recall_at3" ]
-                        log_stats = {f"validate/{check_key}": cirr_results_dict[check_key] for check_key in check_list}
+                            accelerator.log({f"validate/{check_key}": fiq_results_dict[check_key]}, step=global_step)
+                        print(json.dumps(fiq_results_dict, indent=4))
+
+                        log_stats = {f"validate/{check_key}": fiq_results_dict[check_key] for check_key in check_list}
 
                         # Adding 'step' key with global_step value
                         log_stats['step'] = global_step
@@ -316,8 +317,8 @@ def train_text_encoder(args):
 
                         # Save the best model.
                         if args.checkpointing_steps:
-                            if cirr_results_dict['cirr_recall_at1'] > best_recall:
-                                best_recall = cirr_results_dict['cirr_recall_at1']
+                            if fiq_results_dict['fiq_recall_at10'] > best_recall:
+                                best_recall = fiq_results_dict['fiq_recall_at10']
                                 logger.info(f"best model saving... step: {global_step}")
                                 save_text_encoder(f"text_encoder_best", global_step, accelerator.unwrap_model(text_encoder_train), args.output_dir)
                         

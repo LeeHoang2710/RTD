@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import CLIPTextModelWithProjection, CLIPVisionModelWithProjection, CLIPImageProcessor, CLIPTokenizer,BlipForImageTextRetrieval
+import copy
 
 #### RTD: initialize (image_encoder, text_encoder) and trainable another text_encoder 
 def build_text_encoders_RTD(args):
@@ -16,8 +17,7 @@ def build_text_encoders_RTD(args):
                        'huge': 'laion/CLIP-ViT-H-14-laion2B-s32B-b79K',
                        'giga': 'Geonmo/CLIP-Giga-config-fixed',
                        'meta-large': 'facebook/metaclip-l14-fullcc2.5b',
-                       'meta-huge': 'facebook/metaclip-h14-fullcc2.5b',
-                       }
+                       'meta-huge': 'facebook/metaclip-h14-fullcc2.5b',}
 
     clip_preprocess = CLIPImageProcessor(crop_size={'height': 224, 'width': 224},
                                          do_center_crop=True,
@@ -28,18 +28,19 @@ def build_text_encoders_RTD(args):
                                          image_mean=[0.48145466, 0.4578275, 0.40821073],
                                          image_std=[0.26862954, 0.26130258, 0.27577711],
                                          resample=3,
-                                         size={'shortest_edge': 224},
-                                         )
+                                         size={'shortest_edge': 224},)
 
     clip_vision_model = CLIPVisionModelWithProjection.from_pretrained(clip_model_dict[args.clip_model_name], torch_dtype=torch.float16 if args.mixed_precision == 'fp16' else torch.float32, cache_dir=args.cache_dir)
+    # frozen target text encoder
     clip_text_model = CLIPTextModelWithProjection.from_pretrained(clip_model_dict[args.clip_model_name], torch_dtype=torch.float16 if args.mixed_precision == 'fp16' else torch.float32, cache_dir=args.cache_dir)
+    # trainable text encoder for concatenating
     clip_text_another_model = CLIPTextModelWithProjection.from_pretrained(clip_model_dict[args.clip_model_name], torch_dtype=  torch.float32, cache_dir=args.cache_dir)
 
 
     tokenizer = CLIPTokenizer.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', subfolder='tokenizer_2', cache_dir=args.cache_dir)
     tokenizer.add_special_tokens({'additional_special_tokens':["[$]"]}) # NOTE: 49408
 
-    return clip_vision_model, clip_preprocess, clip_text_model,clip_text_another_model, tokenizer
+    return clip_vision_model, clip_preprocess, clip_text_model, clip_text_another_model, tokenizer
 
 
 

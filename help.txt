@@ -1,0 +1,9 @@
+Tạo venv rồi pip install -r requirements.txt
+Lên google tải folder audio của sng_parser rồi vào venv copy vào sng_parser
+Tải LLM_triplets.json trong link này: https://drive.google.com/drive/folders/1gLO8yUpR5RYKZ-ADtBZHKVjKk1hBXe_E?usp=sharing
+
+Tải fashionIQ_dataset từ: https://github.com/XiaoxiaoGuo/fashion-iq
+
+Chạy command này nếu máy yếu: python train_text_encoder.py --batch_size 64 --output_dir output --cirr_dataset_path fashionIQ_dataset --clip_model_name large --validation_steps 10 --checkpointing_steps 10 --seed 12345 --lr_scheduler constant_with_warmup --lr_warmup_steps 0 --max_train_steps 200 --phi_checkpoint "lincir_large.pt" --caption_dir "LLM_triplets.json" --learning_rate 1e-5 --mixed_precision "fp16"
+
+Nếu chạy bằng máy ảo thì: python train_text_encoder.py --batch_size 128 --output_dir output --cirr_dataset_path fashionIQ_dataset --clip_model_name large --validation_steps 100 --checkpointing_steps 100 --seed 12345 --lr_scheduler constant_with_warmup --lr_warmup_steps 0 --max_train_steps 2000 --phi_checkpoint "lincir_large.pt" --caption_dir "LLM_triplets.json" --learning_rate 1e-5 --mixed_precision "fp16"
