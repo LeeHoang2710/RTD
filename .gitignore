@@ -5,3 +5,5 @@ output/
 fashionIQ_dataset/
 LLM_triplets.json
 research.ipynb
+phi_best_giga.pt
+lincir_large.pt
